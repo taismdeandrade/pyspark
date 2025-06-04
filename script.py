@@ -21,6 +21,10 @@ dados.select('Nome da Tarefa', 'Tipo da Tarefa', 'Status Descrição', 'Usuário
 usuario = dados.filter(dados['Usuário'] == 'Jeferson Klau')
 usuario.show()
 
+#Filtra por usuario e descrição concluido
+concluido = dados.filter((dados['Usuário'] == 'Jeferson Klau') & (dados['Status Descrição'] == 'Concluído'))
+concluido.show()
+
 #utiliza o data frame usuario e filtra pela descrição concluido
 concluido = usuario.filter(usuario['Status Descrição'] == 'Concluído')
 concluido.show()
