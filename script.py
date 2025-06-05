@@ -1,6 +1,7 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import *
 from pyspark.sql.types import *
+import boto3
 
 spark = (
     SparkSession.builder
@@ -9,34 +10,42 @@ spark = (
     .getOrCreate()
 )
 
-#Cria um dataframe chamado "dados" a partir do arquivo csv
+
 dados = spark.read.csv('amostragem.csv', header=True, inferSchema=True, sep=';')
 
-#Mostra os tipos de dados das colunas
-dados.printSchema()
+dados = dados.withColumnRenamed('Nome da Tarefa', 'Nome').withColumnRenamed('Status', 'Status Id').withColumnRenamed('Status descrição', 'Status').withColumnRenamed('Tipo da Tarefa', 'Tipo').withColumnRenamed('Data de Criação', 'Data')
 
-#mostra apenas as colunas selecionadas
-dados.select('Nome da Tarefa', 'Tipo da Tarefa', 'Status Descrição', 'Usuário').show()
+dados = dados.withColumn("Data", col("Data").cast("string"))
+dados = dados.filter(dados['Usuário'] == 'Jeferson Klau')
 
-#Cria um novo dataframe chamado usuario filtrando do dataframe dados, seleciona apenas os relacionados ao usuario jeferson klau
-usuario = dados.filter(dados['Usuário'] == 'Jeferson Klau')
-usuario.show()
+dados = dados.withColumn('Status', regexp_replace('Status', 'Concluído', 'done')).withColumn('Status', regexp_replace('Status', 'A Fazer', 'todo'))
 
-#Cria um novo dataframe chamado concluido, e filtra por usuario e descrição concluido
-concluido = dados.filter((dados['Usuário'] == 'Jeferson Klau') & (dados['Status Descrição'] == 'Concluído'))
-concluido.show()
+dados = dados.filter(~dados.Status.isin(['Cancelado']))
 
-#utiliza o data frame usuario e filtra pela descrição concluido
-concluido = usuario.filter(usuario['Status Descrição'] == 'Concluído')
-concluido.show()
+dados = dados.withColumn("PK", concat(lit("USER#"), col("ID do Usuário")))
 
-#Renomeia as colunas "Nome da Tarefa", "Status", e "Status descrição" para "Nome", "Status Id", e "Status" respectivamente
-dados = dados.withColumnRenamed('Nome da Tarefa', 'Nome').withColumnRenamed('Status', 'Status Id').withColumnRenamed('Status descrição', 'Status')
+dados = dados.withColumn("item_id", expr("uuid()")) 
+dados = dados.withColumn(
+    "SK",
+    concat(
+        lit("ITEM#"),
+        col("item_id"),
+        lit("LIST#"),
+        date_format(col("Data"), "yyyy-MM-dd")
+    )
+)
 
-#Muda o tipo da coluna "Data de Criação" de timestamp para o tipo date
-dados = dados.withColumn('Data de Criação', col('Data de Criação').cast('date'))
+dados_inserir = dados.select('Nome','Data','Status', 'Usuário', 'PK', 'SK').limit(1000).toPandas().to_dict(orient="records")
 
-#transforma os valores da coluna "Status" de "concluído" e "A fazer" para "done" e "todo"
-dados = dados.withColumn('status', regexp_replace('Status', 'Concluído', 'done'))
-dados = dados.withColumn('status', regexp_replace('Status', 'A Fazer', 'todo'))
-dados.show()
+# Conectando ao DynamoDB
+dynamodb = boto3.resource("dynamodb", region_name="sa-east-1") 
+tabela = dynamodb.Table("teste")
+
+# Inserindo os registros
+try:
+    with tabela.batch_writer() as batch:
+        for item in dados_inserir:
+            batch.put_item(Item=item)
+    print("Dados inseridos com sucesso no DynamoDB.")
+except Exception as e:
+    print(f"Erro ao inserir dados no DynamoDB: {e}")
