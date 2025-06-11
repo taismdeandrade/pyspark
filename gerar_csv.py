@@ -72,3 +72,4 @@ df_pivotado = (
 
 df_relatorio = df_pivotado.toPandas()
 df_relatorio.to_csv("relatorio.csv", index=False)
+print("Relatório gerado com sucesso.")
